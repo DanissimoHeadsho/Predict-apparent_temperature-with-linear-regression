@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Прогноз погоды</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+<main class="container">
+    <h1>Какая температура по ощущениям?</h1>
+
+    <section class="predict-box">
+        <h2>Выберите период и место</h2>
+            <form method="post" class="predict-form predict-form--retrain">
+        <input type="hidden" name="action" value="retrain">
+        <label>
+            Первый год
+            <input type="number" name="start_year" value="{{ training_config['start_year'] }}" required>
+        </label>
+        <label>
+            Последний год
+            <input type="number" name="end_year" value="{{ training_config['end_year'] }}" required>
+        </label>
+        <label>
+            Город
+            <input type="text" id="city-input" placeholder="Например: Москва">
+        </label>
+        <label>
+            Широта
+            <input type="number" step="0.01" name="latitude" id="latitude-input" value="{{ training_config['latitude'] }}" required>
+        </label>
+        <label>
+            Долгота
+            <input type="number" step="0.01" name="longitude" id="longitude-input" value="{{ training_config['longitude'] }}" required>
+        </label>
+        <div class="button-row">
+            <button type="submit">Загрузить и предсказать</button>
+        </div>
+    </form>
+        <p id="geocode-status" style="font-size: 13px; color: #6b7280;"></p>
+    </section>
+
+    <section class="cards">
+        <article class="card">
+            <h2>Коэффициенты</h2>
+            {% for name, value in weights.items() %}
+                <p><strong>{{ name }}</strong>: {{ "%.5f"|format(value) }}</p>
+            {% endfor %}
+        </article>
+        <article class="card">
+            <h2>Метрики качества</h2>
+            {% for name, value in metrics.items() %}
+                <p><strong>{{ name }}</strong>: {{ "%.5f"|format(value) }}</p>
+            {% endfor %}
+        </article>
+    </section>
+
+    <section class="predict-box">
+        <h2>Сделать предсказание</h2>
+        <form method="post" class="predict-form">
+            <input type="hidden" name="action" value="predict">
+            <label>
+                Температура (°C)
+                <input type="number" step="0.1" name="temperature_2m" required>
+            </label>
+            <label>
+                Относительная влажность (%)
+                <input type="number" step="0.1" name="relative_humidity_2m" required>
+            </label>
+            <label>
+                Скорость ветра (м/с)
+                <input type="number" step="0.1" name="wind_speed_10m" required>
+            </label>
+            <button type="submit">Предсказать</button>
+        </form>
+
+        <div class="prediction-output">
+            {% if prediction is not none %}
+                <p>Ощущаемая температура: <strong>{{ "%.2f"|format(prediction) }} °C</strong></p>
+            {% else %}
+                <p>Введите параметры и нажмите "Предсказать"</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <section>
+        <h2>Самые неточные предсказания</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Температура</th>
+                <th>Влажность</th>
+                <th>Ветер</th>
+                <th>Истинное значение</th>
+                <th>Предсказание</th>
+                <th>Ошибка</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for row in worst_records %}
+                <tr>
+                    <td>{{ "%.2f"|format(row["temperature_2m"]) }}</td>
+                    <td>{{ "%.2f"|format(row["relative_humidity_2m"]) }}</td>
+                    <td>{{ "%.2f"|format(row["wind_speed_10m"]) }}</td>
+                    <td>{{ "%.2f"|format(row["apparent_temperature"]) }}</td>
+                    <td>{{ "%.2f"|format(row["prediction"]) }}</td>
+                    <td>{{ "%.2f"|format(row["absolute_error"]) }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</main>
+
+<script>
+    const cityInput = document.getElementById("city-input");
+    const latInput = document.getElementById("latitude-input");
+    const lonInput = document.getElementById("longitude-input");
+    const status = document.getElementById("geocode-status");
+
+    let debounceTimer;
+
+    async function geocodeCity(cityName) {
+        if (!cityName.trim()) return;
+
+        status.textContent = "Ищу город...";
+        try {
+            const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=ru&format=json`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (!data.results || data.results.length === 0) {
+                status.textContent = "Город не найден, попробуйте другое написание.";
+                return;
+            }
+
+            const place = data.results[0];
+            latInput.value = place.latitude.toFixed(2);
+            lonInput.value = place.longitude.toFixed(2);
+            status.textContent = `Найдено: ${place.name}, ${place.country} (${place.latitude.toFixed(2)}, ${place.longitude.toFixed(2)})`;
+        } catch (err) {
+            status.textContent = "Ошибка при поиске города.";
+            console.error(err);
+        }
+    }
+
+    cityInput.addEventListener("input", () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => geocodeCity(cityInput.value), 600);
+    });
+</script>
+</body>
+</html>
